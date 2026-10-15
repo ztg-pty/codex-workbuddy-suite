@@ -1,5 +1,5 @@
 import fs from 'node:fs/promises';import path from 'node:path';import {randomBytes} from 'node:crypto';import {pathToFileURL,fileURLToPath} from 'node:url';
-import {codexHome,stateDir} from './paths.mjs';import {mergeCatalog,publicCatalog} from './catalog.mjs';import {createGateway} from './gateway.mjs';
+import {codexHome,stateDir} from './paths.mjs';import {mergeCatalog,mergeZCode,publicCatalog} from './catalog.mjs';import {createGateway} from './gateway.mjs';import {createZCodeClient} from './providers/zcode.mjs';
 import {startupTransition,desktopSessions} from './lifecycle.mjs';import {createUsageReader,normalizeOfficialUsage} from './usage.mjs';import {createUsagePanel} from './usage-panel.mjs';
 import {atomicWrite,equalsToken,readOptional} from './install-state.mjs';import {callCodex} from './codex-rpc.mjs';
 export {stateDir};
@@ -15,12 +15,24 @@ export async function runWorker(){
   }
   await lock.writeFile(JSON.stringify({pid:process.pid,root}));
   const client=await import('./workbuddy.mjs');const adapter=await import('./responses.mjs');const {checkCurrentAccount}=await import('./checkin.mjs');
+  // ZCode is optional. It is only advertised when this machine has a signed-in
+  // ZCode client, and any failure here must never block the other providers.
+  let zcodeClient;let zcodeModels=[];
+  if(settings.regions?.includes?.('zcode')){
+    try{
+      zcodeClient=createZCodeClient({});
+      const status=await zcodeClient.getAccountStatus();
+      if(status.loggedIn)zcodeModels=status.models??[];
+    }catch{zcodeClient=undefined;}
+  }
   let accounts=[],checkin={region:'cn',state:settings.autoCheckin?'not-checked':'disabled'};const catalog={models:[]};
   const safeAccounts=()=>accounts.map(({models,...rest})=>({...rest,modelCount:models?.length??0}));
   const reload=async()=>{
     accounts=await Promise.all(['cn','intl'].map(region=>settings.regions.includes(region)?client.getAccountStatus(region):{region,enabled:false,loggedIn:false,models:[]}));
     let official=[];if(settings.authMode==='chatgpt'){try{const cached=JSON.parse(await readOptional(path.join(codexHome,'models_cache.json'),'{}'));official=cached.models??[];}catch{}}
-    const next=mergeCatalog({models:official},accounts[0].models??[],accounts[1].models??[]);catalog.models=next.models;
+    let next=mergeCatalog({models:official},accounts[0].models??[],accounts[1].models??[]);
+    next=mergeZCode(next,zcodeModels);
+    catalog.models=next.models;
     await atomicWrite(path.join(stateDir,'catalog.json'),JSON.stringify(publicCatalog(catalog),null,2));return {models:catalog.models.length,accounts:safeAccounts()};
   };
   try{await reload();}catch(error){await lock.close();await fs.unlink(lockPath).catch(()=>{});throw error;}
@@ -30,9 +42,9 @@ export async function runWorker(){
     if(settings.authMode!=='chatgpt')throw new Error('official-not-connected');return normalizeOfficialUsage(await callCodex(settings.exe,'account/rateLimits/read',{excludeResetCreditDetails:true}));
   }});
   let timer;const stop=async()=>{clearInterval(timer);await gateway.close();await lock.close();await fs.unlink(lockPath).catch(()=>{});process.exit(0);};
-  const gateway=await createGateway({catalog,key,workbuddyClient:client,adapter,port:settings.port??51123,usagePanel:createUsagePanel({readUsage}),
+  const gateway=await createGateway({catalog,key,workbuddyClient:client,zcodeClient,adapter,port:settings.port??51123,usagePanel:createUsagePanel({readUsage}),
     authorize:async(incoming,headers)=>settings.authMode==='chatgpt'?equalsToken(headers['x-workbuddy-client-key'],token)&&typeof incoming==='string'&&incoming.startsWith('Bearer '):equalsToken(incoming,'Bearer '+token),
-    getStatus:async()=>({pid:process.pid,suiteVersion:'0.2.0',accounts:safeAccounts(),checkin,authMode:settings.authMode,transport:'http-sse'}),
+    getStatus:async()=>({pid:process.pid,suiteVersion:'0.2.0',accounts:safeAccounts(),checkin,authMode:settings.authMode,zcode:zcodeClient?'enabled':'disabled',transport:'http-sse'}),
     onRoute:entry=>{fs.appendFile(path.join(stateDir,'routes.jsonl'),JSON.stringify(entry)+'\n').catch(()=>{});},
     management:{accounts:async()=>{await reload();return safeAccounts();},models:async(region)=>({models:catalog.models.filter(model=>region==='all'||model._workbuddy?.region===region).map(model=>({id:model.slug,name:model.display_name,region:model._workbuddy?.region??'official'}))}),checkinStatus:async()=>checkin,checkin:performCheckin,refresh:reload,shutdown:stop}
   });

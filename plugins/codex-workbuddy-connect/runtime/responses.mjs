@@ -369,8 +369,11 @@ export async function* toResponseEvents(body, { model, responseId = `resp_${rand
           yield* argumentEvents(state);
         }
         if (choice.finish_reason != null && choice.finish_reason !== '') {
-          if (!['stop', 'tool_calls', 'length', 'content_filter'].includes(choice.finish_reason)) throw new Error(`Unsupported upstream finish_reason: ${choice.finish_reason}`);
-          finish = choice.finish_reason;
+          if (!['stop', 'tool_calls', 'length', 'content_filter', 'error'].includes(choice.finish_reason)) throw new Error(`Unsupported upstream finish_reason: ${choice.finish_reason}`);
+          // Upstream reports a mid-generation failure (rate limit, model error)
+          // as finish_reason "error". Mapping it to stop keeps the text already
+          // produced and completes the stream instead of disconnecting.
+          finish = choice.finish_reason === 'error' ? 'stop' : choice.finish_reason;
         }
       }
     }

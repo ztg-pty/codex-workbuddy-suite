@@ -1,7 +1,7 @@
 {
   "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   "name": "codex-workbuddy-connect",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "通过本机共享运行时查询 WorkBuddy 国内、国际区连接状态、余额与官方模型目录。",
   "author": {
     "name": "ztg-pty"

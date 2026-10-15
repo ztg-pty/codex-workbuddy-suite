@@ -1,7 +1,7 @@
 # Codex WorkBuddy Suite - Windows bootstrap.
 # Downloads a fixed, checksum-verified release, then runs the local installer.
 $ErrorActionPreference = 'Stop'
-$SuiteVersion = '0.2.0'
+$SuiteVersion = '0.3.0'
 $Repo = 'ztg-pty/codex-workbuddy-suite'
 $NodeVersion = '24.15.0'
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12

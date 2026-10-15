@@ -35,6 +35,7 @@ bash -c "$(curl --proto '=https' --tlsv1.2 -fsSL https://raw.githubusercontent.c
 | `codex-workbuddy-connect` | 查询两区连接、当前账号余额和模型目录 |
 | `codex-workbuddy-checkin` | 国内当前账号每日签到，成功后按账号和服务端日期去重 |
 | 本地模型网关 | Responses/SSE 转换、模型路由、函数和 custom 工具调用 |
+| ZCode 提供方 | 复用本机已登录的 ZCode 客户端，把 GLM 系列模型加入同一模型菜单 |
 | 统一额度面板 | 同页显示两区积分；有 ChatGPT 登录时显示官方额度和重置时间 |
 | 安装与管理工具 | 环境检测、登录提示、后台启动、刷新、更新与配置恢复 |
 
@@ -46,6 +47,7 @@ bash -c "$(curl --proto '=https' --tlsv1.2 -fsSL https://raw.githubusercontent.c
 - 要使用官方模型，请在 Codex 中登录自己的 ChatGPT 账号，再重新执行安装流程更新连接模式。
 - WorkBuddy 独占模式不会向 Codex 请求官方登录；启动入口会注入本地凭据并清除官方／中转环境变量。如果界面仍出现登录提示，请从套件启动入口重新打开。
 - 国内条目标注“国内版 WorkBuddy”，国际条目标注“国际版 WorkBuddy”；官方模型显示名保留。
+- 本机安装并登录 ZCode 客户端后，模型菜单会出现 `ZCode · 模型名` 条目；未登录则整条上游不显示。
 - 余额、免费促销、模型列表和收费倍率由 WorkBuddy 决定。本项目不提供账号、积分或永久免费的承诺。
 
 ## 使用与管理
