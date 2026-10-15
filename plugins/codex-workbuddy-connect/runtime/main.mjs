@@ -2,6 +2,7 @@ import fs from 'node:fs/promises';import path from 'node:path';import {randomByt
 import {codexHome,stateDir} from './paths.mjs';import {mergeCatalog,mergeZCode,publicCatalog} from './catalog.mjs';import {createGateway} from './gateway.mjs';import {createZCodeClient} from './providers/zcode.mjs';
 import {startupTransition,desktopSessions} from './lifecycle.mjs';import {createUsageReader,normalizeOfficialUsage} from './usage.mjs';import {createUsagePanel} from './usage-panel.mjs';
 import {atomicWrite,equalsToken,readOptional} from './install-state.mjs';import {callCodex} from './codex-rpc.mjs';
+import {createCatalogCache} from './catalog-cache.mjs';
 export {stateDir};
 export async function runWorker(){
   const root=path.resolve(import.meta.dirname,'..');await fs.mkdir(stateDir,{recursive:true,mode:0o700});
@@ -27,15 +28,26 @@ export async function runWorker(){
   }
   let accounts=[],checkin={region:'cn',state:settings.autoCheckin?'not-checked':'disabled'};const catalog={models:[]};
   const safeAccounts=()=>accounts.map(({models,...rest})=>({...rest,modelCount:models?.length??0}));
-  const reload=async()=>{
-    accounts=await Promise.all(['cn','intl'].map(region=>settings.regions.includes(region)?client.getAccountStatus(region):{region,enabled:false,loggedIn:false,models:[]}));
-    let official=[];if(settings.authMode==='chatgpt'){try{const cached=JSON.parse(await readOptional(path.join(codexHome,'models_cache.json'),'{}'));official=cached.models??[];}catch{}}
-    let next=mergeCatalog({models:official},accounts[0].models??[],accounts[1].models??[]);
-    next=mergeZCode(next,zcodeModels);
-    catalog.models=next.models;
-    await atomicWrite(path.join(stateDir,'catalog.json'),JSON.stringify(publicCatalog(catalog),null,2));return {models:catalog.models.length,accounts:safeAccounts()};
+  // Catalog reload is TTL-cached: concurrent callers share one refresh, and a
+  // refresh that produces identical models skips the disk write entirely.
+  const cache=createCatalogCache({
+    ttlMs:Number(settings.catalogTtlMs??60000),
+    persist:async value=>{await atomicWrite(path.join(stateDir,'catalog.json'),JSON.stringify(publicCatalog(value),null,2));},
+    compute:async()=>{
+      accounts=await Promise.all(['cn','intl'].map(region=>settings.regions.includes(region)?client.getAccountStatus(region):{region,enabled:false,loggedIn:false,models:[]}));
+      let official=[];if(settings.authMode==='chatgpt'){try{const cached=JSON.parse(await readOptional(path.join(codexHome,'models_cache.json'),'{}'));official=cached.models??[];}catch{}}
+      let next=mergeCatalog({models:official},accounts[0].models??[],accounts[1].models??[]);
+      if(zcodeClient){try{const status=await zcodeClient.getAccountStatus();if(status.loggedIn)next=mergeZCode(next,status.models??zcodeModels);}catch{next=mergeZCode(next,zcodeModels);}}
+      else next=mergeZCode(next,zcodeModels);
+      catalog.models=next.models;
+      return catalog;
+    },
+  });
+  const reload=async({force=false}={})=>{
+    const result=await cache.refresh({force});
+    return {models:catalog.models.length,accounts:safeAccounts(),...(result.cached?{cached:true}:{})};
   };
-  try{await reload();}catch(error){await lock.close();await fs.unlink(lockPath).catch(()=>{});throw error;}
+  try{await reload({force:true});}catch(error){await lock.close();await fs.unlink(lockPath).catch(()=>{});throw error;}
   const key=randomBytes(32).toString('hex');
   const performCheckin=async()=>{if(!settings.autoCheckin||!settings.regions.includes('cn'))return {region:'cn',state:'disabled'};checkin=await checkCurrentAccount({stateDir,client});await atomicWrite(path.join(stateDir,'checkin-status.json'),JSON.stringify(checkin));return checkin;};
   const readUsage=createUsageReader({readAccount:region=>settings.regions.includes(region)?client.getAccountStatus(region):Promise.resolve({enabled:false,loggedIn:false}),readOfficial:async()=>{
@@ -44,9 +56,9 @@ export async function runWorker(){
   let timer;const stop=async()=>{clearInterval(timer);await gateway.close();await lock.close();await fs.unlink(lockPath).catch(()=>{});process.exit(0);};
   const gateway=await createGateway({catalog,key,workbuddyClient:client,zcodeClient,adapter,port:settings.port??51123,usagePanel:createUsagePanel({readUsage}),
     authorize:async(incoming,headers)=>settings.authMode==='chatgpt'?equalsToken(headers['x-workbuddy-client-key'],token)&&typeof incoming==='string'&&incoming.startsWith('Bearer '):equalsToken(incoming,'Bearer '+token),
-    getStatus:async()=>({pid:process.pid,suiteVersion:'0.2.0',accounts:safeAccounts(),checkin,authMode:settings.authMode,zcode:zcodeClient?'enabled':'disabled',transport:'http-sse'}),
+    getStatus:async()=>({pid:process.pid,suiteVersion:'0.3.0',accounts:safeAccounts(),checkin,authMode:settings.authMode,zcode:zcodeClient?'enabled':'disabled',transport:'http-sse'}),
     onRoute:entry=>{fs.appendFile(path.join(stateDir,'routes.jsonl'),JSON.stringify(entry)+'\n').catch(()=>{});},
-    management:{accounts:async()=>{await reload();return safeAccounts();},models:async(region)=>({models:catalog.models.filter(model=>region==='all'||model._workbuddy?.region===region).map(model=>({id:model.slug,name:model.display_name,region:model._workbuddy?.region??'official'}))}),checkinStatus:async()=>checkin,checkin:performCheckin,refresh:reload,shutdown:stop}
+    management:{accounts:async()=>{await reload({force:true});return safeAccounts();},models:async(region)=>({models:catalog.models.filter(model=>region==='all'||model._workbuddy?.region===region||model._zcode).map(model=>({id:model.slug,name:model.display_name,region:model._workbuddy?.region??(model._zcode?'zcode':'official')}))}),checkinStatus:async()=>checkin,checkin:performCheckin,refresh:()=>reload({force:true}),shutdown:stop}
   });
   await atomicWrite(path.join(stateDir,'connection.json'),JSON.stringify({url:gateway.url,key,pid:process.pid}));
   console.log(JSON.stringify({state:'running',pid:process.pid,modelCount:catalog.models.length}));

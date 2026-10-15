@@ -1,6 +1,7 @@
 import http from 'node:http';
 import { randomUUID,timingSafeEqual } from 'node:crypto';
 import { modelRoute,publicCatalog } from './catalog.mjs';
+import {createQueue,QueueFullError,QueueTimeoutError,QueueAbortedError,withRetry,isRetryableBeforeStream} from './queue.mjs';
 
 function keyEquals(a,b){const aa=Buffer.from(a??''),bb=Buffer.from(b??'');return aa.length===bb.length&&timingSafeEqual(aa,bb);}
 function json(res,status,body){res.writeHead(status,{'content-type':'application/json','cache-control':'no-store'});res.end(JSON.stringify(body));}
@@ -23,7 +24,18 @@ export function normalizeOfficialReplay(body){
   }
   return{...body,input};
 }
-export async function createGateway({catalog,key,workbuddyClient,zcodeClient,adapter,officialBaseUrl='https://chatgpt.com/backend-api/codex',fetchImpl=fetch,port=0,onRoute=()=>{},getStatus=async()=>({}),authorize=async()=>false,management={},usagePanel,officialAuth}) {
+export async function createGateway({catalog,key,workbuddyClient,zcodeClient,adapter,officialBaseUrl='https://chatgpt.com/backend-api/codex',fetchImpl=fetch,port=0,onRoute=()=>{},getStatus=async()=>({}),authorize=async()=>false,management={},usagePanel,officialAuth,queues}) {
+  // Official models are never queued. WorkBuddy runs without a concurrency cap
+  // (unlimited limit) but still passes through the queue so an upstream 429 can
+  // be retried instead of reaching the client. ZCode is capped per the user's
+  // configuration, defaulting to four in flight.
+  const providerQueues=queues??{
+    workbuddy:createQueue({provider:'workbuddy',limit:Infinity,maxWaiting:256,waitTimeoutMs:300000}),
+    zcode:createQueue({provider:'zcode',limit:Number(process.env.WORKBUDDY_ZCODE_CONCURRENCY??4),maxWaiting:64,waitTimeoutMs:180000}),
+  };
+  // Only failures raised while opening the upstream response are retried; a
+  // stream that already delivered bytes must not be replayed.
+  const retryOptions={retries:6,baseDelayMs:800,maxDelayMs:10000,isRetryable:error=>isRetryableBeforeStream(error)};
   const server=http.createServer(async(req,res)=>{
     const abort=new AbortController();res.on('close',()=>{if(!res.writableEnded)abort.abort();});
     try {
@@ -76,7 +88,20 @@ export async function createGateway({catalog,key,workbuddyClient,zcodeClient,ada
           zcodeRouted.instructions=(body.instructions??'')+'\nProvider capabilities: OpenAI-hosted server-side web_search is unavailable on this ZCode route. Use a client/MCP search tool if supplied. Never claim to have performed an unavailable search.';
         }
         const zcodeBody=adapter.toChatRequest(zcodeRouted);
-        const zcodeUpstream=await zcodeClient.streamChat(zcodeBody,{signal:abort.signal,modelMetadata:{id:route.model,metadata:route.metadata}});
+        // Wait for a ZCode slot, then retry throttling with backoff so the
+        // client sees a working stream instead of a 429.
+        let zcodeUpstream;
+        try{
+          zcodeUpstream=await providerQueues.zcode.run(()=>withRetry(
+            ()=>zcodeClient.streamChat(zcodeBody,{signal:abort.signal,modelMetadata:{id:route.model,metadata:route.metadata}}),
+            {signal:abort.signal,...retryOptions}
+          ),{signal:abort.signal});
+        }catch(error){
+          if(error instanceof QueueFullError){json(res,503,{error:{code:'zcode_queue_full',message:'ZCode is at capacity; retry shortly.'}});return;}
+          if(error instanceof QueueTimeoutError){json(res,503,{error:{code:'zcode_queue_timeout',message:'ZCode queue wait timed out; retry shortly.'}});return;}
+          if(error instanceof QueueAbortedError||abort.signal.aborted)return;
+          throw error;
+        }
         if(!zcodeUpstream.ok){json(res,zcodeUpstream.status,{error:{code:'zcode_upstream_error',region:'zcode',status:zcodeUpstream.status}});return;}
         const zcodeEvents=adapter.toResponseEvents(zcodeUpstream.body,{model:body.model,responseId:'resp_'+randomUUID().replaceAll('-',''),tools:body.tools??[]});
         if(body.stream===false){let final;for await(const e of zcodeEvents){if(['response.completed','response.incomplete','response.failed'].includes(e.event))final=e.data.response;}if(!final)throw new Error('No completed response');json(res,200,final);return;}
@@ -108,7 +133,18 @@ export async function createGateway({catalog,key,workbuddyClient,zcodeClient,ada
         routedBody.instructions=(body.instructions??'')+'\nProvider capabilities: OpenAI-hosted server-side web_search is unavailable on this WorkBuddy route. Use a client/MCP search tool if supplied. Never claim to have performed an unavailable search.';
       }
       const chatBody=adapter.toChatRequest(routedBody);
-      const upstream=await workbuddyClient.streamChat(route.region,chatBody,{signal:abort.signal,modelMetadata:catalog.models.find(m=>m.slug===body.model)?._workbuddy?.metadata});
+      let upstream;
+      try{
+        upstream=await providerQueues.workbuddy.run(()=>withRetry(
+          ()=>workbuddyClient.streamChat(route.region,chatBody,{signal:abort.signal,modelMetadata:catalog.models.find(m=>m.slug===body.model)?._workbuddy?.metadata}),
+          {signal:abort.signal,...retryOptions}
+        ),{signal:abort.signal});
+      }catch(error){
+        if(error instanceof QueueFullError){json(res,503,{error:{code:'workbuddy_queue_full',message:'WorkBuddy is at capacity; retry shortly.'}});return;}
+        if(error instanceof QueueTimeoutError){json(res,503,{error:{code:'workbuddy_queue_timeout',message:'WorkBuddy queue wait timed out; retry shortly.'}});return;}
+        if(error instanceof QueueAbortedError||abort.signal.aborted)return;
+        throw error;
+      }
       if(!upstream.ok){json(res,upstream.status,{error:{code:'workbuddy_upstream_error',region:route.region,status:upstream.status}});return;}
       const events=adapter.toResponseEvents(upstream.body,{model:body.model,responseId:'resp_'+randomUUID().replaceAll('-',''),tools:body.tools??[]});
       if(body.stream===false){let final;for await(const e of events){if(['response.completed','response.incomplete','response.failed'].includes(e.event))final=e.data.response;}if(!final)throw new Error('No completed response');json(res,200,final);return;}
@@ -118,11 +154,17 @@ export async function createGateway({catalog,key,workbuddyClient,zcodeClient,ada
     }catch(err){
       if(abort.signal.aborted)return;
       const isWorkBuddy=err.name==='WorkBuddyError';
-      const status=err.status??({'upstream-credit':402,'upstream-rate':429,'upstream-auth':401,'not-logged-in':401}[err.code]??502);
-      if(!res.headersSent)json(res,status,{error:{code:isWorkBuddy?err.code:status===400?'invalid_request':'bridge_failure',message:status===400?err.message:isWorkBuddy?'WorkBuddy request failed: '+err.code:'Request or stream failed'}});
+      // A throttled upstream that survived every retry is reported as a
+      // retryable 503 so clients back off instead of treating it as their own
+      // rate limit. Credit exhaustion keeps its own meaning.
+      const throttle=err.code==='upstream-rate';
+      const status=err.status??(throttle?503:{'upstream-credit':402,'upstream-rate':429,'upstream-auth':401,'not-logged-in':401}[err.code]??502);
+      const code=throttle?'upstream_busy':(isWorkBuddy?err.code:status===400?'invalid_request':'bridge_failure');
+      const message=status===400?err.message:throttle?'The upstream provider is throttling after retries; retry shortly.':isWorkBuddy?'WorkBuddy request failed: '+err.code:'Request or stream failed';
+      if(!res.headersSent)json(res,status,{error:{code,message}});
       else res.end('event: response.failed\ndata: {"type":"response.failed","response":{"status":"failed","error":{"code":"bridge_failure"}}}\n\n');
     }
   });
   await new Promise((resolve,reject)=>{server.once('error',reject);server.listen(port,'127.0.0.1',resolve);});
-  return{server,url:'http://127.0.0.1:'+server.address().port,close:async()=>{server.closeAllConnections();await new Promise(resolve=>server.close(resolve));}};
+  return{server,url:'http://127.0.0.1:'+server.address().port,queues:providerQueues,close:async()=>{server.closeAllConnections();await new Promise(resolve=>server.close(resolve));}};
 }
