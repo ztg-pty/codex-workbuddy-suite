@@ -24,6 +24,8 @@ bash -c "$(curl --proto '=https' --tlsv1.2 -fsSL https://raw.githubusercontent.c
 
 安装脚本使用固定版本安装包，并检查 SHA-256。第一次启用或更新模型目录后，保存工作、完整退出 Codex，再从套件提供的启动入口打开。日常切换模型与推理强度无需重启。
 
+完整安装、启动、模型选择、签到、额度面板与故障排查步骤见 **[使用指南](docs/USAGE.md)**。
+
 下载与版本说明：[Releases](https://github.com/ztg-pty/codex-workbuddy-suite/releases)。仓库首次上传期间，安装脚本／Release 资源可能仍在同步；正式安装请确认对应 Release 已出现。
 
 ## 包含什么
