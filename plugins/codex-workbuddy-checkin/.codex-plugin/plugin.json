@@ -1,0 +1,34 @@
+{
+  "name": "codex-workbuddy-checkin",
+  "version": "0.2.0",
+  "description": "通过本机共享运行时查询并执行当前 WorkBuddy 国内区账号每日签到。",
+  "author": {
+    "name": "ztg-pty"
+  },
+  "license": "MIT",
+  "keywords": [
+    "workbuddy",
+    "local",
+    "cn",
+    "checkin"
+  ],
+  "skills": "./skills/",
+  "mcpServers": "./.mcp.json",
+  "interface": {
+    "displayName": "WorkBuddy 国内签到",
+    "shortDescription": "查询并执行当前国内账号每日签到",
+    "longDescription": "开源本地插件，读取当前 WorkBuddy 国内区账号的每日签到状态，并在用户要求时执行签到。与双区连接插件共用本机运行时和签到记录，账号凭据留在本机。",
+    "developerName": "ztg-pty",
+    "category": "Productivity",
+    "capabilities": [
+      "Read",
+      "Write"
+    ],
+    "logo": "./assets/icon.svg",
+    "composerIcon": "./assets/icon.svg",
+    "defaultPrompt": [
+      "查看 WorkBuddy 国内区今日签到状态",
+      "为当前 WorkBuddy 国内区账号执行今日签到"
+    ]
+  }
+}

@@ -1,0 +1,17 @@
+{
+  "name": "codex-workbuddy-suite",
+  "version": "0.2.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "test": "node --test tests/*.test.mjs",
+    "setup": "node --use-env-proxy scripts/setup.mjs",
+    "start": "node scripts/daemon.mjs",
+    "release": "node scripts/release.mjs"
+  },
+  "description": "WorkBuddy model gateway, Codex plugins, daily check-in and quota dashboard for Windows and macOS",
+  "license": "MIT"
+}

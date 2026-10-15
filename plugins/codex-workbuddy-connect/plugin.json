@@ -1,0 +1,37 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "codex-workbuddy-connect",
+  "version": "0.2.0",
+  "description": "通过本机共享运行时查询 WorkBuddy 国内、国际区连接状态、余额与官方模型目录。",
+  "author": {
+    "name": "ztg-pty"
+  },
+  "license": "MIT",
+  "keywords": [
+    "workbuddy",
+    "local",
+    "cn",
+    "intl",
+    "models"
+  ],
+  "extensions": {
+    "com.openai": {
+      "interface": {
+        "displayName": "WorkBuddy 双区连接",
+        "shortDescription": "两区状态、余额和官方模型诊断",
+        "longDescription": "开源本地插件，读取本机共享运行时的 WorkBuddy 国内、国际区状态、余额和官方模型目录。保留官方模型名称与区域前缀；工具诊断与当前聊天模型接入状态分别验证。账号凭据保存在本机。",
+        "developerName": "ztg-pty",
+        "category": "Productivity",
+        "capabilities": [
+          "Read"
+        ],
+        "logo": "./assets/icon.svg",
+        "composerIcon": "./assets/icon.svg",
+        "defaultPrompt": [
+          "检查 WorkBuddy 国内和国际区连接状态",
+          "查看两区余额与官方模型目录"
+        ]
+      }
+    }
+  }
+}

@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "workbuddy-checkin": {
+      "type": "stdio",
+      "command": "node",
+      "args": ["${PLUGIN_ROOT}/runtime/mcp.mjs", "checkin"],
+      "cwd": "${PLUGIN_ROOT}"
+    }
+  }
+}

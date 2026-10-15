@@ -1,0 +1,29 @@
+{
+  "name": "workbuddy-suite",
+  "plugins": [
+    {
+      "name": "codex-workbuddy-connect",
+      "source": {
+        "source": "local",
+        "path": "./plugins/codex-workbuddy-connect"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_USE"
+      },
+      "category": "Productivity"
+    },
+    {
+      "name": "codex-workbuddy-checkin",
+      "source": {
+        "source": "local",
+        "path": "./plugins/codex-workbuddy-checkin"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_USE"
+      },
+      "category": "Productivity"
+    }
+  ]
+}

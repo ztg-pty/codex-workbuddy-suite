@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "workbuddy-connect": {
+      "type": "stdio",
+      "command": "node",
+      "args": ["${PLUGIN_ROOT}/runtime/mcp.mjs", "connect"],
+      "cwd": "${PLUGIN_ROOT}"
+    }
+  }
+}

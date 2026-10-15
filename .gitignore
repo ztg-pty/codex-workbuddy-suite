@@ -1,0 +1,13 @@
+node_modules/
+dist/
+.qa/
+.superpowers/
+verification/
+*.log
+.env
+connection.json
+client-token
+auth.json
+models_cache.json
+installed.json
+runtime.lock
