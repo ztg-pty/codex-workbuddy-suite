@@ -1,4 +1,4 @@
-import fs from 'node:fs/promises';import path from 'node:path';import {randomBytes} from 'node:crypto';import {pathToFileURL} from 'node:url';
+import fs from 'node:fs/promises';import path from 'node:path';import {randomBytes} from 'node:crypto';import {pathToFileURL,fileURLToPath} from 'node:url';
 import {codexHome,stateDir} from './paths.mjs';import {mergeCatalog,publicCatalog} from './catalog.mjs';import {createGateway} from './gateway.mjs';
 import {startupTransition,desktopSessions} from './lifecycle.mjs';import {createUsageReader,normalizeOfficialUsage} from './usage.mjs';import {createUsagePanel} from './usage-panel.mjs';
 import {atomicWrite,equalsToken,readOptional} from './install-state.mjs';import {callCodex} from './codex-rpc.mjs';
@@ -6,7 +6,9 @@ export {stateDir};
 export async function runWorker(){
   const root=path.resolve(import.meta.dirname,'..');await fs.mkdir(stateDir,{recursive:true,mode:0o700});
   const settings=JSON.parse(await fs.readFile(path.join(stateDir,'settings.json'),'utf8'));const token=(await fs.readFile(path.join(stateDir,'client-token'),'utf8')).trim();
-  const lockPath=path.join(stateDir,'runtime.lock');let lock;
+  // The WorkBuddy desktop daemon rewrites stateDir/runtime.lock, so the lock
+  // lives beside the source to avoid a permanent EEXIST startup failure.
+  const lockPath=path.join(path.dirname(fileURLToPath(import.meta.url)),'..','runtime-gw.lock');let lock;
   try{lock=await fs.open(lockPath,'wx',0o600);}catch(error){if(error.code!=='EEXIST')throw error;const prior=JSON.parse(await fs.readFile(lockPath,'utf8'));
     try{process.kill(prior.pid,0);if(prior.root!==root)throw new Error('runtime-lock-owned-by-another-installation');return;}catch(check){if(check.code!=='ESRCH')throw check;}
     await fs.unlink(lockPath);lock=await fs.open(lockPath,'wx',0o600);

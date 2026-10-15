@@ -4,7 +4,7 @@ import { modelRoute,publicCatalog } from './catalog.mjs';
 
 function keyEquals(a,b){const aa=Buffer.from(a??''),bb=Buffer.from(b??'');return aa.length===bb.length&&timingSafeEqual(aa,bb);}
 function json(res,status,body){res.writeHead(status,{'content-type':'application/json','cache-control':'no-store'});res.end(JSON.stringify(body));}
-async function readJson(req){let n=0;const chunks=[];for await(const chunk of req){n+=chunk.length;if(n>16*1024*1024)throw Object.assign(new Error('Request too large'),{status:413});chunks.push(chunk);}try{return JSON.parse(Buffer.concat(chunks).toString('utf8'));}catch{throw Object.assign(new Error('Invalid JSON'),{status:400});}}
+async function readJson(req){let n=0;const chunks=[];for await(const chunk of req){n+=chunk.length;if(n>128*1024*1024)throw Object.assign(new Error('Request too large'),{status:413});chunks.push(chunk);}try{return JSON.parse(Buffer.concat(chunks).toString('utf8'));}catch{throw Object.assign(new Error('Invalid JSON'),{status:400});}}
 async function writeChunk(res,chunk){if(!res.write(chunk))await new Promise((resolve,reject)=>{res.once('drain',resolve);res.once('error',reject);});}
 function officialHeaders(headers){const output={};for(const [key,value]of Object.entries(headers)){
   if(typeof value==='string'&&(['authorization','chatgpt-account-id','content-type','accept','user-agent','originator','version','session_id'].includes(key)||key.startsWith('x-codex-')))output[key]=value;

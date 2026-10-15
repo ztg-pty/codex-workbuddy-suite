@@ -105,11 +105,21 @@ export function toChatRequest(body) {
   }
   for (const item of input) {
     if (!item || typeof item !== 'object') throw invalid('input items must be objects');
+    // Compaction markers are a client-side session artifact with no upstream
+    // payload; skipping them keeps long sessions from failing conversion.
+    if (item.type === 'compaction') continue;
     if (item.type === 'reasoning') {
       // Opaque model-specific ciphertext cannot cross providers. Keep every
       // readable summary and every visible message/tool item in the same chat.
       const text = (item.summary ?? []).map(part => part.text ?? '').join('');
       if (text) assistant().reasoning_content = text;
+      continue;
+    }
+    // Multi-agent collaboration messages carry readable text only; forward
+    // that text as assistant context instead of rejecting the item.
+    if (item.type === 'agent_message') {
+      const text = (item.content ?? []).map(part => part?.type === 'input_text' ? (part.text ?? '') : '').join('');
+      if (text) messages.push({ role: 'assistant', content: text });
       continue;
     }
     if (['function_call', 'custom_tool_call'].includes(item.type)) {
@@ -247,7 +257,12 @@ export async function* toResponseEvents(body, { model, responseId = `resp_${rand
     // arguments identify it; otherwise wait for finish rather than invent a name.
     if (!force && !(state.arguments && state.callId && knownTools.has(state.name))) return;
     if (!state.name || !state.callId) throw new Error('Upstream tool call is missing its name or id');
-    if (knownTools.size && !knownTools.has(state.name)) throw new Error(`Upstream requested an unregistered tool: ${state.name}`);
+    if (knownTools.size && !knownTools.has(state.name)) {
+      // WorkBuddy's upstream exposes the command tool as `exec` while Codex
+      // declares `shell`; map it rather than breaking the stream.
+      if (state.name === 'exec') state.name = 'shell';
+      else throw new Error(`Upstream requested an unregistered tool: ${state.name}`);
+    }
     if ([...toolStates.values()].some(other => other !== state && other.callId === state.callId)) throw new Error(`Duplicate upstream tool call id: ${state.callId}`);
     const custom = knownTools.get(state.name)?.type === 'custom';
     const definition = knownTools.get(state.name);
