@@ -1,6 +1,6 @@
 {
   "name": "codex-workbuddy-connect",
-  "version": "0.3.1",
+  "version": "0.4.0",
   "description": "通过本机共享运行时查询 WorkBuddy 国内、国际区连接状态、余额与官方模型目录。",
   "author": {
     "name": "ztg-pty"

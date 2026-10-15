@@ -2,7 +2,7 @@
 # Codex WorkBuddy Suite - macOS bootstrap.
 # Downloads a fixed, checksum-verified release, then runs the local installer.
 set -eu
-SUITE_VERSION='0.3.1'
+SUITE_VERSION='0.4.0'
 REPO='ztg-pty/codex-workbuddy-suite'
 NODE_VERSION='24.15.0'
 

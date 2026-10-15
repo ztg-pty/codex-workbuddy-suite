@@ -24,7 +24,7 @@ export function normalizeOfficialReplay(body){
   }
   return{...body,input};
 }
-export async function createGateway({catalog,key,workbuddyClient,zcodeClient,adapter,officialBaseUrl='https://chatgpt.com/backend-api/codex',fetchImpl=fetch,port=0,onRoute=()=>{},getStatus=async()=>({}),authorize=async()=>false,management={},usagePanel,officialAuth,queues}) {
+export async function createGateway({catalog,key,workbuddyClient,zcodeClient,adapter,officialBaseUrl='https://chatgpt.com/backend-api/codex',fetchImpl=fetch,port=0,onRoute=()=>{},getStatus=async()=>({}),authorize=async()=>false,management={},usagePanel,officialAuth,queues,retry}) {
   // Official models are never queued. WorkBuddy runs without a concurrency cap
   // (unlimited limit) but still passes through the queue so an upstream 429 can
   // be retried instead of reaching the client. ZCode is capped per the user's
@@ -35,7 +35,7 @@ export async function createGateway({catalog,key,workbuddyClient,zcodeClient,ada
   };
   // Only failures raised while opening the upstream response are retried; a
   // stream that already delivered bytes must not be replayed.
-  const retryOptions={retries:6,baseDelayMs:800,maxDelayMs:10000,isRetryable:error=>isRetryableBeforeStream(error)};
+  const retryOptions={retries:6,baseDelayMs:800,maxDelayMs:10000,isRetryable:error=>isRetryableBeforeStream(error),...retry};
   const server=http.createServer(async(req,res)=>{
     const abort=new AbortController();res.on('close',()=>{if(!res.writableEnded)abort.abort();});
     try {

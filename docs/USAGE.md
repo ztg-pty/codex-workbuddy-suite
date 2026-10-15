@@ -1,6 +1,6 @@
 # 使用指南
 
-适用版本：v0.2.0（预发布）。支持 Windows 10/11 与 macOS，Linux 暂不支持。
+适用版本：v0.4.0。支持 Windows 10/11 与 macOS，Linux 暂不支持。
 
 ## 一、准备工作
 
