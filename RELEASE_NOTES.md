@@ -1,4 +1,18 @@
-# v0.2.0 预发布
+# v0.3.0 预发布
+
+## 新增：ZCode 提供方
+
+- 复用本机已登录的 ZCode 客户端凭据，把 GLM 系列模型加进同一个 Codex 模型菜单，显示为 `ZCode · 模型名`。
+- 未检测到本机 ZCode 登录时，整条上游不显示，其余功能不受影响。
+- 对话走 `open.bigmodel.cn` / `api.z.ai` 的 Anthropic Messages 端点；客户端请求签名（HKDF 握手 + Ed25519 + PoW）按官方客户端逐字复刻。
+- 支持函数调用：OpenAI 工具与 `tool_use`/`tool_result` 双向转换。
+- 思考档位通过 `output_config.effort` 下发，并映射到上游接受的取值。
+
+## 本次修复
+
+- 上游以 `finish_reason: "error"` 结束时（限流、模型端错误），改为按正常结束处理，保留已生成文本，不再断开流。
+
+## 上一版内容
 
 把国内版、国际版 WorkBuddy 模型接入 Codex 的本地套件首个可分享版本。
 

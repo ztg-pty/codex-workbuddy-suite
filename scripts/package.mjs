@@ -133,6 +133,13 @@ export async function packagePlugins({ outDir = path.join(projectRoot, 'dist') }
     const runtimeRoot = path.join(pluginRoot, 'runtime');
     await mkdir(runtimeRoot, { recursive: true });
     for (const file of sourceFiles) await copyFile(path.join(projectRoot, 'src', file.name), path.join(runtimeRoot, file.name));
+    // Providers live in a subdirectory and must ship with the plugin runtime.
+    const providerRoot = path.join(projectRoot, 'src', 'providers');
+    const providerFiles = await readdir(providerRoot, { withFileTypes: true });
+    await mkdir(path.join(runtimeRoot, 'providers'), { recursive: true });
+    for (const file of providerFiles) {
+      if (file.isFile() && file.name.endsWith('.mjs')) await copyFile(path.join(providerRoot, file.name), path.join(runtimeRoot, 'providers', file.name));
+    }
     const { version, files } = await validatePlugin(pluginRoot, name);
     const archive = path.join(destination, `${name}-${version}.zip`);
     const buffer = await zipPlugin(pluginRoot, name, files);

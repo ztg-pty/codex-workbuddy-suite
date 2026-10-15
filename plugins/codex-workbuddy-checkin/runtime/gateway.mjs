@@ -23,7 +23,7 @@ export function normalizeOfficialReplay(body){
   }
   return{...body,input};
 }
-export async function createGateway({catalog,key,workbuddyClient,adapter,officialBaseUrl='https://chatgpt.com/backend-api/codex',fetchImpl=fetch,port=0,onRoute=()=>{},getStatus=async()=>({}),authorize=async()=>false,management={},usagePanel,officialAuth}) {
+export async function createGateway({catalog,key,workbuddyClient,zcodeClient,adapter,officialBaseUrl='https://chatgpt.com/backend-api/codex',fetchImpl=fetch,port=0,onRoute=()=>{},getStatus=async()=>({}),authorize=async()=>false,management={},usagePanel,officialAuth}) {
   const server=http.createServer(async(req,res)=>{
     const abort=new AbortController();res.on('close',()=>{if(!res.writableEnded)abort.abort();});
     try {
@@ -59,9 +59,31 @@ export async function createGateway({catalog,key,workbuddyClient,adapter,officia
       // was misrouted: explain the fix instead of a bare 404.
       if(!route){
         const looksWorkBuddy=typeof body.model==='string'&&/^workbuddy-(cn|intl)\//.test(body.model);
-        json(res,404,{error:{code:looksWorkBuddy?'workbuddy_model_on_foreign_provider':'unknown_model',message:looksWorkBuddy?'This WorkBuddy model is served by the local WorkBuddy Suite gateway. Set model_provider to workbuddy_gateway (run the suite launch entry) instead of the third-party relay.':undefined}});return;
+        const looksZCode=typeof body.model==='string'&&/^zcode\//.test(body.model);
+        const local=looksWorkBuddy||looksZCode;
+        const message=looksWorkBuddy?'This WorkBuddy model is served by the local WorkBuddy Suite gateway. Set model_provider to workbuddy_gateway (run the suite launch entry) instead of the third-party relay.'
+          :looksZCode?'This ZCode model is served by the local WorkBuddy Suite gateway. Set model_provider to workbuddy_gateway (run the suite launch entry) instead of the third-party relay.':undefined;
+        json(res,404,{error:{code:local?'workbuddy_model_on_foreign_provider':'unknown_model',message}});return;
       }
       onRoute({region:route.region,model:route.model,time:new Date().toISOString()});
+      if(route.region==='zcode'){
+        if(!zcodeClient){json(res,501,{error:{code:'zcode_not_configured',message:'ZCode is not enabled in this installation.'}});return;}
+        if(path.endsWith('/compact')||path.endsWith('/lite')){json(res,501,{error:{code:'zcode_operation_not_supported'}});return;}
+        let zcodeRouted={...body,model:route.model};
+        if(body.tools?.some(tool=>tool.type==='web_search'||tool.type==='web_search_preview')){
+          if(body.tool_choice&&typeof body.tool_choice==='object'&&!['function','custom'].includes(body.tool_choice.type))throw Object.assign(new Error('This ZCode model does not support OpenAI-hosted web_search; use a client search tool'),{status:400});
+          zcodeRouted.tools=body.tools.filter(tool=>!['web_search','web_search_preview'].includes(tool.type));
+          zcodeRouted.instructions=(body.instructions??'')+'\nProvider capabilities: OpenAI-hosted server-side web_search is unavailable on this ZCode route. Use a client/MCP search tool if supplied. Never claim to have performed an unavailable search.';
+        }
+        const zcodeBody=adapter.toChatRequest(zcodeRouted);
+        const zcodeUpstream=await zcodeClient.streamChat(zcodeBody,{signal:abort.signal,modelMetadata:{id:route.model,metadata:route.metadata}});
+        if(!zcodeUpstream.ok){json(res,zcodeUpstream.status,{error:{code:'zcode_upstream_error',region:'zcode',status:zcodeUpstream.status}});return;}
+        const zcodeEvents=adapter.toResponseEvents(zcodeUpstream.body,{model:body.model,responseId:'resp_'+randomUUID().replaceAll('-',''),tools:body.tools??[]});
+        if(body.stream===false){let final;for await(const e of zcodeEvents){if(['response.completed','response.incomplete','response.failed'].includes(e.event))final=e.data.response;}if(!final)throw new Error('No completed response');json(res,200,final);return;}
+        res.writeHead(200,{'content-type':'text/event-stream','cache-control':'no-cache','x-workbuddy-route':'zcode'});
+        for await(const item of zcodeEvents)await writeChunk(res,'event: '+item.event+'\ndata: '+JSON.stringify(item.data)+'\n\n');
+        res.end();return;
+      }
       if(route.region==='official') {
         const headers=officialHeaders(req.headers);
         if(officialAuth){
